@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="description" content="Pillenalarm PWA" />
+    <title>Pillenalarm</title>
+
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon-192.png" type="image/png" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+
+    <style>
+      :root {
+        --bg: #f3f4f6;
+        --card: #fff;
+        --primary: #2563eb;
+        --primary-dark: #1d4ed8;
+        --accent: #dbeafe;
+        --text: #111827;
+        --muted: #6b7280;
+        --danger: #ef4444;
+        --success: #16a34a;
+        --border: #d1d5db;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #eff6ff 0%, var(--bg) 100%);
+        color: var(--text);
+        font-family: Arial, sans-serif;
+      }
+
+      .container {
+        max-width: 620px;
+        margin: 32px auto;
+        padding: 20px;
+      }
+
+      .card {
+        background: var(--card);
+        border-radius: 22px;
+        padding: 22px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(2rem, 5vw, 2.5rem);
+      }
+
+      .subtitle {
+        color: var(--muted);
+        margin-bottom: 22px;
+      }
+
+      label {
+        display: block;
+        margin-top: 16px;
+        font-weight: 600;
+      }
+
+      input, select, button {
+        width: 100%;
+        margin-top: 8px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        font-size: 1rem;
+      }
+
+      input, select {
+        border: 1px solid var(--border);
+        background: #fff;
+      }
+
+      input:focus, select:focus {
+        outline: 2px solid rgba(37, 99, 235, 0.2);
+        border-color: var(--primary);
+      }
+
+      button {
+        border: none;
+        background: var(--primary);
+        color: white;
+        font-weight: 700;
+        cursor: pointer;
+        transition: 0.2s ease;
+      }
+
+      button:hover {
+        background: var(--primary-dark);
+      }
+
+      .secondary {
+        background: #e5e7eb;
+        color: var(--text);
+      }
+
+      .secondary:hover {
+        background: #d1d5db;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .status {
+        margin-top: 14px;
+        min-height: 1.2em;
+        color: var(--muted);
+      }
+
+      .status.success {
+        color: var(--success);
+      }
+
+      .status.error {
+        color: var(--danger);
+      }
+
+      .pill-list {
+        list-style: none;
+        padding: 0;
+        margin-top: 18px;
+      }
+
+      .item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: #f9fafb;
+        border: 1px solid #eef2f7;
+        margin-bottom: 10px;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-top: 4px;
+      }
+
+      .delete {
+        width: auto;
+        margin: 0;
+        background: transparent;
+        color: var(--danger);
+      }
+
+      .delete:hover {
+        background: rgba(239, 68, 68, 0.08);
+      }
+
+      @media (max-width: 560px) {
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="card">
+        <h1>Pillenalarm</h1>
+        <div class="subtitle">Medikamente am richtigen Zeitpunkt erinnern.</div>
+
+        <form id="alarm-form">
+          <label>
+            Medikament
+            <input id="name" type="text" placeholder="z. B. Vitamin D" required />
+          </label>
+
+          <div class="row">
+            <label>
+              Uhrzeit
+              <input id="time" type="time" required />
+            </label>
+
+            <label>
+              Wiederholen
+              <select id="frequency">
+                <option value="once">Einmalig</option>
+                <option value="daily">Täglich</option>
+                <option value="weekdays">Werktags</option>
+                <option value="custom">Eigene Tage</option>
+              </select>
+            </label>
+          </div>
+
+          <label id="custom-days-wrap" style="display:none;">
+            Tage (z. B. Mo, Mi, Fr)
+            <input id="days" type="text" placeholder="Mo, Mi, Fr" />
+          </label>
+
+          <button type="submit" style="margin-top: 18px;">Alarm speichern</button>
+        </form>
+
+        <button id="notify-test" class="secondary" style="margin-top: 14px;">
+          Test-Benachrichtigung
+        </button>
+
+        <div id="status" class="status" aria-live="polite"></div>
+
+        <h2 style="margin-top: 26px; margin-bottom: 12px;">Gespeicherte Alarme</h2>
+        <ul id="alarm-list" class="pill-list"></ul>
+      </div>
+    </div>
+
+    <script>
+      const STORAGE_KEY = "pill-alarms";
+      const form = document.getElementById("alarm-form");
+      const statusEl = document.getElementById("status");
+      const listEl = document.getElementById("alarm-list");
+      const testBtn = document.getElementById("notify-test");
+      const frequencySelect = document.getElementById("frequency");
+      const customDaysWrap = document.getElementById("custom-days-wrap");
+
+      const dayMap = {
+        "Mo": 1,
+        "Di": 2,
+        "Mi": 3,
+        "Do": 4,
+        "Fr": 5,
+        "Sa": 6,
+        "So": 0
+      };
+
+      function setStatus(message, type = "") {
+        statusEl.textContent = message;
+        statusEl.className = "status";
+        if (type) statusEl.classList.add(type);
+      }
+
+      function readAlarms() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          return raw ? JSON.parse(raw) : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function writeAlarms(alarms) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(alarms));
+      }
+
+      function formatSchedule(alarm) {
+        if (alarm.frequency === "daily") return "Täglich";
+        if (alarm.frequency === "weekdays") return "Werktags";
+        if (alarm.frequency === "custom") return alarm.days || "Eigene Tage";
+        return "Einmalig";
+      }
+
+      function renderAlarms() {
+        const alarms = readAlarms();
+        listEl.innerHTML = "";
+
+        if (!alarms.length) {
+          listEl.innerHTML = "<li class='item'><span>Keine Alarme gespeichert.</span></li>";
+          return;
+        }
+
+        alarms.forEach((alarm, index) => {
+          const item = document.createElement("li");
+          item.className = "item";
+
+          const info = document.createElement("div");
+          info.innerHTML = `
+            <strong>${alarm.name}</strong>
+            <div class="meta">${alarm.time} • ${formatSchedule(alarm)}</div>
+          `;
+
+          const removeBtn = document.createElement("button");
+          removeBtn.className = "delete";
+          removeBtn.type = "button";
+          removeBtn.textContent = "Löschen";
+          removeBtn.addEventListener("click", () => {
+            const updated = readAlarms().filter((_, i) => i !== index);
+            writeAlarms(updated);
+            renderAlarms();
+            setStatus("Alarm gelöscht.", "success");
+          });
+
+          item.appendChild(info);
+          item.appendChild(removeBtn);
+          listEl.appendChild(item);
+        });
+      }
+
+      function shouldFireToday(alarm, date = new Date()) {
+        const weekday = date.getDay();
+
+        if (alarm.frequency === "daily") return true;
+        if (alarm.frequency === "weekdays") return weekday >= 1 && weekday <= 5;
+        if (alarm.frequency === "custom") {
+          const customDays = (alarm.days || "")
+            .split(",")
+            .map((d) => d.trim())
+            .filter(Boolean);
+          if (!customDays.length) return false;
+          return customDays.some((d) => {
+            const short = d.slice(0, 2).toLowerCase();
+            const normalized = short.charAt(0).toUpperCase() + short.slice(1);
+            return dayMap[normalized] === weekday;
+          });
+        }
+        return false;
+      }
+
+      function scheduleAlarm(alarm) {
+        const [hours, minutes] = alarm.time.split(":").map(Number);
+        const now = new Date();
+        const trigger = new Date(now.getTime());
+        trigger.setHours(hours, minutes, 0, 0);
+
+        if (trigger <= now) {
+          trigger.setDate(trigger.getDate() + 1);
+        }
+
+        const delay = trigger.getTime() - now.getTime();
+
+        setTimeout(() => {
+          const today = new Date();
+          if (!shouldFireToday(alarm, today)) {
+            const next = new Date(today.getTime());
+            next.setHours(0, 0, 0, 0);
+            next.setDate(next.getDate() + 1);
+            setTimeout(() => scheduleAlarm(alarm), 1000 * 60 * 60 * 24);
+            return;
+          }
+
+          if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("Pillenalarm", {
+              body: `${alarm.name} ist jetzt dran.`,
+              icon: "icon-192.png"
+            });
+          }
+
+          const next = new Date();
+          next.setDate(next.getDate() + 1);
+          setTimeout(() => scheduleAlarm(alarm), 1000 * 60 * 60 * 24);
+        }, delay);
+      }
+
+      function scheduleAllAlarms() {
+        const alarms = readAlarms();
+        alarms.forEach((alarm) => scheduleAlarm(alarm));
+      }
+
+      frequencySelect.addEventListener("change", () => {
+        customDaysWrap.style.display = frequencySelect.value === "custom" ? "block" : "none";
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        const name = document.getElementById("name").value.trim();
+        const time = document.getElementById("time").value;
+        const frequency = frequencySelect.value;
+        const days = document.getElementById("days").value.trim();
+
+        if (!name || !time) {
+          setStatus("Bitte Medikament und Uhrzeit eingeben.", "error");
+          return;
+        }
+
+        const alarm = { name, time, frequency, days };
+        const alarms = readAlarms();
+        alarms.push(alarm);
+        writeAlarms(alarms);
+        renderAlarms();
+        scheduleAlarm(alarm);
+
+        form.reset();
+        frequencySelect.value = "once";
+        customDaysWrap.style.display = "none";
+        setStatus("Alarm gespeichert.", "success");
+      });
+
+      testBtn.addEventListener("click", async () => {
+        if (!("Notification" in window)) {
+          setStatus("Benachrichtigungen werden in diesem Browser nicht unterstützt.", "error");
+          return;
+        }
+
+        if (Notification.permission === "granted") {
+          new Notification("Test-Benachrichtigung", {
+            body: "Dein Pillenalarm funktioniert.",
+            icon: "icon-192.png"
+          });
+          setStatus("Test-Benachrichtigung gesendet.", "success");
+          return;
+        }
+
+        const permission = await Notification.requestPermission();
+        if (permission === "granted") {
+          new Notification("Test-Benachrichtigung", {
+            body: "Dein Pillenalarm funktioniert.",
+            icon: "icon-192.png"
+          });
+          setStatus("Benachrichtigungen aktiviert.", "success");
+        } else {
+          setStatus("Benachrichtigungen wurden nicht aktiviert.", "error");
+        }
+      });
+
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("sw.js").catch(() => {
+            setStatus("Service Worker konnte nicht registriert werden.", "error");
+          });
+        });
+      }
+
+      renderAlarms();
+      scheduleAllAlarms();
+    </script>
+  </body>
+</html>
